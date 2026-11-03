@@ -1,0 +1,30 @@
+{
+  "name": "dsh-taskbar-flash",
+  "version": "0.3.0",
+  "description": "Host plugin: flash the DeepSeek Harness taskbar button when an agent turn finishes (Windows).",
+  "type": "module",
+  "main": "lib/plugin.js",
+  "exports": {
+    ".": "./lib/plugin.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/plugin.js",
+    "bin/flash.exe",
+    "bin/flashw.exe",
+    "bin/flash.ps1",
+    "src/flash.cs",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}
+
+
+

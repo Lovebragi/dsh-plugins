@@ -1,0 +1,5 @@
+- insert:
+    - id: taskbar-flash
+      name: 'dsh-taskbar-flash'
+      config:
+        count: 5

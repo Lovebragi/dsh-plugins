@@ -1,0 +1,5 @@
+# Bundle patch used by the DSH plugin manager. A manual (path-based) install
+# uses the absolute `lib/index.js` entry shown in README.md instead.
+- insert:
+    - id: reply-progress
+      name: 'dsh-reply-progress'
