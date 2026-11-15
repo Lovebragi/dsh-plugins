@@ -1,0 +1,34 @@
+{
+  "name": "dsh-jump-to-question",
+  "version": "0.1.0",
+  "description": "Client plugin: after a long reply, jump back to the user message that started the turn.",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/client.js",
+    "cordis.patch.yml",
+    "README.md",
+    "test"
+  ],
+  "scripts": {
+    "test": "node test/client.test.mjs && node test/effect.test.mjs"
+  },
+  "license": "MIT",
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-locale"
+      ]
+    },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

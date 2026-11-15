@@ -1,0 +1,4 @@
+# Bundle patch used by the DSH plugin manager.
+- insert:
+    - id: jump-to-question
+      name: 'dsh-jump-to-question'

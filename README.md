@@ -1,14 +1,15 @@
 # DeepSeek Harness Plugins
 
-三个独立的 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件，可以分别安装、分别启停：
+四个独立的 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件，可以分别安装、分别启停：
 
 | 插件 | 功能 | 平台 |
 |---|---|---|
 | [dsh-taskbar-flash](packages/dsh-taskbar-flash) | 每轮对话结束时让 DSH 任务栏按钮闪烁，直到你切回窗口 | Windows Desktop |
 | [dsh-balance-chip](packages/dsh-balance-chip) | 对话区右上角显示 DeepSeek 余额；悬停展开「查询用量 / 充值」 | Desktop / Web |
 | [dsh-reply-progress](packages/dsh-reply-progress) | 正在生成回复时显示一个预计完成百分比进度条 | Desktop / Web |
+| [dsh-jump-to-question](packages/dsh-jump-to-question) | 回答太长时，结束后自动跳回本轮问题；也可手动点「回到问题」 | Desktop / Web |
 
-> 三个插件都是 DSH 的 bundle 包：宿主半边 +（前两个）浏览器半边。任务栏插件只有宿主半边，不需要构建前端。
+> 四个插件都是 DSH 的 bundle 包：宿主半边 +（后三个）浏览器半边。任务栏插件只有宿主半边，不需要构建前端。
 
 ## 安装
 
