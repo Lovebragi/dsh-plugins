@@ -14,8 +14,10 @@ window.__ModuleLoader__.load({
 .dshJumpButton:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}\
 .dshJumpButton:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px}\
 .dshJumpButton svg{flex:none;width:12px;height:12px;display:block}\
+.dshJumpRoot:not([hidden]) .dshJumpButton{animation:dshJumpIn .16s ease-out}\
+@keyframes dshJumpIn{from{opacity:0;transform:translateY(2px)}to{opacity:1;transform:none}}\
 @media (max-width:700px){.dshJumpButton{padding:0 6px}}\
-@media (prefers-reduced-motion:reduce){.dshJumpButton{transition:none}}\
+@media (prefers-reduced-motion:reduce){.dshJumpButton{transition:none}.dshJumpRoot:not([hidden]) .dshJumpButton{animation:none}}\
 `;
 		const tagId = "dsh-jump-to-question/JumpToQuestion.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") === null) {
@@ -75,6 +77,21 @@ window.__ModuleLoader__.load({
 			const promptRect = prompt.getBoundingClientRect();
 			const scrollerRect = scroller.getBoundingClientRect();
 			return promptRect.bottom <= scrollerRect.top + 8;
+		}
+
+		/**
+		 * Visibility decision with a gap between the show and hide thresholds.
+		 * A shown button tolerates the prompt entering the top 48px before hiding;
+		 * a hidden button only appears once the prompt is fully above the top.
+		 * This prevents layout jitter around the boundary from blinking the control.
+		 */
+		function shouldShow(prompt, scroller, shown) {
+			if (prompt == null || scroller == null) return false;
+			if (typeof prompt.getClientRects === "function" && prompt.getClientRects().length === 0) return false;
+			const promptRect = prompt.getBoundingClientRect();
+			const scrollerRect = scroller.getBoundingClientRect();
+			const margin = shown ? 48 : 8;
+			return promptRect.bottom <= scrollerRect.top + margin;
 		}
 
 		/** Distance in pixels between the current scroll position and the floor. */
@@ -151,8 +168,45 @@ window.__ModuleLoader__.load({
 			const manualAt = react.useRef(0);
 			const jumpAt = react.useRef(0);
 			const runningRef = react.useRef(undefined);
+			const shownRef = react.useRef(false);
+			const shownAt = react.useRef(0);
+			const hideTimer = react.useRef(0);
 			runningRef.current = running;
 			const [show, setShow] = react.useState(false);
+
+			/**
+			 * Commit a visibility change at most once per stable decision. Hiding
+			 * waits until the button has been visible for 500ms, so a re-entering
+			 * question cannot blink it off and on; showing cancels a pending hide.
+			 */
+			const commit = (next, force = false) => {
+				if (next === shownRef.current) {
+					if (next && hideTimer.current !== 0) {
+						window.clearTimeout(hideTimer.current);
+						hideTimer.current = 0;
+					}
+					return;
+				}
+				if (!next && !force) {
+					const remain = 500 - (Date.now() - shownAt.current);
+					if (remain > 0) {
+						if (hideTimer.current === 0) {
+							hideTimer.current = window.setTimeout(() => {
+								hideTimer.current = 0;
+								commit(false, true);
+							}, remain);
+						}
+						return;
+					}
+				}
+				if (hideTimer.current !== 0) {
+					window.clearTimeout(hideTimer.current);
+					hideTimer.current = 0;
+				}
+				shownRef.current = next;
+				shownAt.current = Date.now();
+				setShow(next);
+			};
 
 			react.useEffect(() => {
 				const mount = rootRef.current;
@@ -169,28 +223,30 @@ window.__ModuleLoader__.load({
 				const delayMs = Number.isFinite(override.delayMs) ? Math.max(0, override.delayMs) : 1400;
 				const threshold = Number.isFinite(override.bottomThresholdPx) ? Math.max(0, override.bottomThresholdPx) : 32;
 				const state = { turn: undefined, done: false, initial: true, timer: 0 };
+				let scrolling = false;
+				let scrollTimer = 0;
 
 				const paint = () => {
 					if (Date.now() - jumpAt.current < 1800) {
-						setShow(false);
+						commit(false);
 						return;
 					}
 					if (autoJump && !state.done && state.timer !== 0) {
-						setShow(false);
+						commit(false);
 						return;
 					}
 					try {
 						const flow = flowOf();
 						const scroller = scrollerOf();
 						if (flow === null || scroller === null) {
-							setShow(false);
+							commit(false);
 							return;
 						}
 						const turn = latestTurn(flow);
 						const prompt = turn === undefined ? null : promptFor(flow, turn);
-						setShow(prompt !== null && turnFinished(flow, turn) && isAbove(prompt, scroller));
+						commit(prompt !== null && turnFinished(flow, turn) && shouldShow(prompt, scroller, shownRef.current));
 					} catch {
-						setShow(false);
+						commit(false);
 					}
 				};
 
@@ -200,6 +256,11 @@ window.__ModuleLoader__.load({
 					const scroller = scrollerOf();
 					if (flow === null || scroller === null) return;
 					if (state.done || latestTurn(flow) !== turn) return;
+					if (scrolling) {
+						state.done = true;
+						paint();
+						return;
+					}
 					const prompt = promptFor(flow, turn);
 					if (prompt === null || !isAbove(prompt, scroller)) {
 						state.done = true;
@@ -219,24 +280,25 @@ window.__ModuleLoader__.load({
 					jumpAt.current = Date.now();
 					scrollToPrompt(prompt, scroller, "instant");
 					state.done = true;
-					setShow(false);
+					commit(false, true);
 				};
 
 				const tick = () => {
+					if (scrolling) return;
 					try {
 						const flow = flowOf();
 						if (flow === null) {
-							setShow(false);
+							commit(false);
 							return;
 						}
 						const scroller = scrollerOf();
 						if (scroller === null) {
-							setShow(false);
+							commit(false);
 							return;
 						}
 						const turn = latestTurn(flow);
 						if (turn === undefined) {
-							setShow(false);
+							commit(false);
 							return;
 						}
 						if (turn !== state.turn) {
@@ -270,21 +332,31 @@ window.__ModuleLoader__.load({
 						}
 						paint();
 					} catch {
-						setShow(false);
+						commit(false);
 					}
 				};
 
-				const hideOnScroll = () => setShow(false);
+				const onScroll = () => {
+					scrolling = true;
+					window.clearTimeout(scrollTimer);
+					scrollTimer = window.setTimeout(() => {
+						scrollTimer = 0;
+						scrolling = false;
+						tick();
+					}, 120);
+				};
 
 				tick();
 				const interval = window.setInterval(tick, 500);
-				host.addEventListener("scroll", hideOnScroll, { passive: true, capture: true });
-				window.addEventListener("resize", hideOnScroll);
+				host.addEventListener("scroll", onScroll, { passive: true, capture: true });
+				window.addEventListener("resize", onScroll);
 				return () => {
 					window.clearInterval(interval);
 					window.clearTimeout(state.timer);
-					host.removeEventListener("scroll", hideOnScroll, { capture: true });
-					window.removeEventListener("resize", hideOnScroll);
+					window.clearTimeout(scrollTimer);
+					window.clearTimeout(hideTimer.current);
+					host.removeEventListener("scroll", onScroll, { capture: true });
+					window.removeEventListener("resize", onScroll);
 				};
 			}, [sessionId]);
 
@@ -302,7 +374,7 @@ window.__ModuleLoader__.load({
 				} catch {
 					/* a stale DOM must never break the composer */
 				}
-				setShow(false);
+				commit(false, true);
 			};
 
 			return react.createElement("span", {
@@ -354,6 +426,7 @@ window.__ModuleLoader__.load({
 		exports.turnFinished = turnFinished;
 		exports.promptFor = promptFor;
 		exports.isAbove = isAbove;
+		exports.shouldShow = shouldShow;
 		exports.bottomDistance = bottomDistance;
 		exports.nearBottom = nearBottom;
 		exports.scrollTopFor = scrollTopFor;

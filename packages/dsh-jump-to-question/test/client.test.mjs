@@ -129,6 +129,16 @@ assert.equal(module.isAbove({ getClientRects: () => [{}], getBoundingClientRect:
 assert.equal(module.isAbove({ getClientRects: () => [{}], getBoundingClientRect: () => rect(0, 80) }, scroller), true);
 assert.equal(module.isAbove({ getClientRects: () => [], getBoundingClientRect: () => rect(0, 80) }, scroller), false);
 
+const nearTop = { getClientRects: () => [{}], getBoundingClientRect: () => rect(90, 130) };
+assert.equal(module.shouldShow(nearTop, scroller, false), false);
+assert.equal(module.shouldShow(nearTop, scroller, true), true);
+const above = { getClientRects: () => [{}], getBoundingClientRect: () => rect(0, 80) };
+assert.equal(module.shouldShow(above, scroller, false), true);
+assert.equal(module.shouldShow(above, scroller, true), true);
+const visible = { getClientRects: () => [{}], getBoundingClientRect: () => rect(160, 220) };
+assert.equal(module.shouldShow(visible, scroller, false), false);
+assert.equal(module.shouldShow(visible, scroller, true), false);
+
 assert.equal(module.bottomDistance(scroller), 700);
 assert.equal(module.nearBottom(scroller, 800), true);
 assert.equal(module.nearBottom(scroller, 100), false);
