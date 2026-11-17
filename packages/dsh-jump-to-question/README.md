@@ -31,7 +31,7 @@
 从 tgz 安装：
 
 ```text
-file:<下载目录>\dsh-jump-to-question-0.1.0.tgz
+file:<下载目录>\dsh-jump-to-question-0.1.1.tgz
 ```
 
 从源码目录安装：

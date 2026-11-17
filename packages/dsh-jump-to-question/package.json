@@ -1,6 +1,6 @@
 {
   "name": "dsh-jump-to-question",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Client plugin: after a long reply, jump back to the user message that started the turn.",
   "type": "module",
   "main": "lib/index.js",
