@@ -37,7 +37,9 @@ window.__ModuleLoader__.load({
 .dshBookmarksRow:hover{background:var(--dsw-alias-interactive-bg-hover)}\
 .dshBookmarksOpen{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;align-items:flex-start;padding:7px 8px;border:none;border-radius:8px;background:transparent;color:inherit;font-family:inherit;text-align:left;cursor:pointer}\
 .dshBookmarksOpen:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}\
-.dshBookmarksTurn{color:#d8a52c;font-size:11px;font-weight:600;line-height:1.3}\
+.dshBookmarksMeta{display:flex;align-items:baseline;gap:6px;width:100%;min-width:0}\
+.dshBookmarksSession{flex:1;min-width:0;overflow:hidden;color:var(--dsw-alias-label-secondary);font-size:12px;font-weight:600;line-height:1.3;text-overflow:ellipsis;white-space:nowrap}\
+.dshBookmarksTurn{flex:none;color:#d8a52c;font-size:11px;font-weight:600;line-height:1.3}\
 .dshBookmarksText{display:-webkit-box;width:100%;overflow:hidden;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.45;-webkit-box-orient:vertical;-webkit-line-clamp:2}\
 .dshBookmarksRemove{flex:none;width:26px;border:none;border-radius:8px;background:transparent;color:var(--dsw-alias-label-tertiary);font-family:inherit;font-size:16px;cursor:pointer}\
 .dshBookmarksRemove:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}\
@@ -58,7 +60,8 @@ window.__ModuleLoader__.load({
 
 		//#region dsh-turn-bookmarks/dom.js
 		const TURN_MARK = "button[data-index]";
-		const STORE_PREFIX = "dsh-turn-bookmarks:v1:";
+		const STORE_KEY = "dsh-turn-bookmarks:v2:entries";
+		const LEGACY_PREFIX = "dsh-turn-bookmarks:v1:";
 
 		/** Read the turn number from one host rail mark. */
 		function turnFromMark(button) {
@@ -217,6 +220,25 @@ window.__ModuleLoader__.load({
 			return true;
 		}
 
+		/** Open another Session, then land on the bookmarked turn once its rail exists. */
+		function openSessionAtTurn(workspace, sessionId, turn) {
+			if (workspace === undefined || typeof workspace.openSession !== "function") return;
+			try {
+				workspace.openSession(sessionId);
+			} catch {
+				return;
+			}
+			let attempts = 0;
+			const check = () => {
+				if (navigateToTurn(sessionId, turn)) return;
+				if (attempts < 80) {
+					attempts += 1;
+					window.setTimeout(check, 100);
+				}
+			};
+			window.setTimeout(check, 80);
+		}
+
 		/** Paint gold on the host rail marks for the bookmarked turns. */
 		function syncMarks(host, items) {
 			if (host === null) return;
@@ -230,36 +252,112 @@ window.__ModuleLoader__.load({
 			}
 		}
 
-		function storageKey(sessionId) {
-			return STORE_PREFIX + String(sessionId ?? "unknown");
+		/** Normalize one stored/global bookmark entry. */
+		function normalizeEntry(entry) {
+			if (entry === null || typeof entry !== "object") return null;
+			const sessionId = String(entry.sessionId ?? "").trim();
+			const turn = Number(entry.turn);
+			if (sessionId === "" || !Number.isSafeInteger(turn) || turn < 1) return null;
+			return {
+				sessionId,
+				sessionTitle: typeof entry.sessionTitle === "string" ? entry.sessionTitle.slice(0, 80) : "",
+				turn,
+				text: typeof entry.text === "string" ? entry.text.slice(0, 180) : "",
+				savedAt: Number.isFinite(entry.savedAt) ? Number(entry.savedAt) : 0
+			};
 		}
 
-		/** Load and normalize one session's bookmarks. */
-		function readBookmarks(sessionId) {
-			try {
-				const raw = window.localStorage.getItem(storageKey(sessionId));
-				if (raw === null) return [];
-				const value = JSON.parse(raw);
-				if (!Array.isArray(value)) return [];
-				const byTurn = new Map();
-				for (const entry of value) {
-					const turn = typeof entry === "number" ? entry : Number(entry?.turn);
-					if (!Number.isSafeInteger(turn) || turn < 1) continue;
-					const text = typeof entry === "object" && entry !== null && typeof entry.text === "string" ? entry.text.slice(0, 180) : "";
-					if (!byTurn.has(turn)) byTurn.set(turn, { turn, text });
-				}
-				return [...byTurn.values()].sort((left, right) => left.turn - right.turn);
-			} catch {
-				return [];
+		function uniqueEntries(entries) {
+			const byKey = new Map();
+			for (const entry of entries) {
+				const normalized = normalizeEntry(entry);
+				if (normalized === null) continue;
+				byKey.set(`${normalized.sessionId}:${normalized.turn}`, normalized);
 			}
+			return [...byKey.values()];
 		}
 
-		function writeBookmarks(sessionId, items) {
+		/** Load the global bookmark list and migrate the old per-session keys once. */
+		function readEntries() {
+			let entries = [];
 			try {
-				window.localStorage.setItem(storageKey(sessionId), JSON.stringify(items));
+				const raw = window.localStorage.getItem(STORE_KEY);
+				if (raw !== null) {
+					const value = JSON.parse(raw);
+					if (Array.isArray(value)) entries = uniqueEntries(value);
+				}
+			} catch {
+				entries = [];
+			}
+			try {
+				const migrated = [];
+				for (let index = 0; index < window.localStorage.length; index += 1) {
+					const key = window.localStorage.key(index);
+					if (key === null || !key.startsWith(LEGACY_PREFIX)) continue;
+					const sessionId = key.slice(LEGACY_PREFIX.length);
+					const raw = window.localStorage.getItem(key);
+					if (raw === null) continue;
+					const value = JSON.parse(raw);
+					if (!Array.isArray(value)) continue;
+					for (const item of value) {
+						const turn = typeof item === "number" ? item : Number(item?.turn);
+						if (!Number.isSafeInteger(turn) || turn < 1) continue;
+						migrated.push({
+							sessionId,
+							sessionTitle: "",
+							turn,
+							text: typeof item === "object" && item !== null && typeof item.text === "string" ? item.text.slice(0, 180) : "",
+							savedAt: Date.now()
+						});
+					}
+					window.localStorage.removeItem(key);
+				}
+				if (migrated.length > 0) {
+					entries = uniqueEntries([...entries, ...migrated]);
+					writeEntries(entries);
+				}
+			} catch {
+				/* malformed legacy data stays untouched */
+			}
+			return entries;
+		}
+
+		function writeEntries(entries) {
+			try {
+				window.localStorage.setItem(STORE_KEY, JSON.stringify(uniqueEntries(entries)));
 			} catch {
 				/* private mode / quota: keep the in-memory state */
 			}
+		}
+
+		/** One session's turns, used by the left rail and gold marks. */
+		function readBookmarks(sessionId) {
+			return readEntries()
+				.filter((entry) => entry.sessionId === sessionId)
+				.sort((left, right) => left.turn - right.turn);
+		}
+
+		function writeBookmarks(sessionId, items) {
+			const retained = readEntries().filter((entry) => entry.sessionId !== sessionId);
+			const additions = [];
+			for (const item of items ?? []) {
+				const turn = typeof item === "number" ? item : Number(item?.turn);
+				if (!Number.isSafeInteger(turn) || turn < 1) continue;
+				additions.push({
+					sessionId,
+					sessionTitle: "",
+					turn,
+					text: typeof item === "object" && item !== null && typeof item.text === "string" ? item.text.slice(0, 180) : "",
+					savedAt: Date.now()
+				});
+			}
+			writeEntries([...retained, ...additions]);
+		}
+
+		/** Best-effort title while the session list hook is unavailable. */
+		function documentTitle() {
+			const raw = typeof document.title === "string" ? document.title : "";
+			return raw.replace(/\s*[—|-]\s*DeepSeek Harness\s*$/u, "").trim();
 		}
 		//#endregion
 
@@ -272,6 +370,7 @@ window.__ModuleLoader__.load({
 			empty: "No bookmarks yet. Right-click a turn marker on the right to save one.",
 			turn: "Turn {turn}",
 			unloaded: "Not loaded yet — open to load this turn",
+			unknownSession: "Another conversation",
 			remove: "Remove bookmark"
 		};
 		const zh = {
@@ -281,6 +380,7 @@ window.__ModuleLoader__.load({
 			empty: "还没有收藏。右键右侧的回合刻度，就能把那一轮存到这里。",
 			turn: "第 {turn} 轮",
 			unloaded: "尚未加载，点击加载并跳转",
+			unknownSession: "另一个对话",
 			remove: "取消收藏"
 		};
 		//#endregion
@@ -291,9 +391,12 @@ window.__ModuleLoader__.load({
 		 * panel button sits at the rail's top and the panel lists every saved turn
 		 * independently of the right rail's own scroll position.
 		 */
-		function TurnBookmarks({ sessionId, t }) {
-			const [items, setItems] = react.useState(() => readBookmarks(sessionId));
-			const [itemsSession, setItemsSession] = react.useState(sessionId);
+		function TurnBookmarks({ sessionId, useSessions, workspace, t }) {
+			const sessionRows = typeof useSessions === "function"
+				? useSessions((state) => state.byId)
+				: undefined;
+			const currentTitle = sessionRows?.[sessionId]?.displayTitle;
+			const [items, setItems] = react.useState(() => readEntries());
 			const [open, setOpen] = react.useState(false);
 			const [layout, setLayout] = react.useState(null);
 			const dockRef = react.useRef(null);
@@ -307,22 +410,30 @@ window.__ModuleLoader__.load({
 			};
 
 			react.useEffect(() => {
-				setItems(readBookmarks(sessionId));
-				setItemsSession(sessionId);
+				setItems(readEntries());
 				setOpen(false);
 			}, [sessionId]);
 
-			const toggle = react.useCallback((turn, text) => {
+			const toggleFor = react.useCallback((entrySessionId, turn, text) => {
 				if (!Number.isSafeInteger(turn) || turn < 1) return;
 				setItems((previous) => {
-					const exists = previous.some((item) => item.turn === turn);
+					const key = `${entrySessionId}:${turn}`;
+					const exists = previous.some((item) => `${item.sessionId}:${item.turn}` === key);
 					const next = exists
-						? previous.filter((item) => item.turn !== turn)
-						: [...previous, { turn, text: String(text ?? "").slice(0, 180) }].sort((left, right) => left.turn - right.turn);
-					writeBookmarks(sessionId, next);
+						? previous.filter((item) => `${item.sessionId}:${item.turn}` !== key)
+						: [...previous, {
+							sessionId: entrySessionId,
+							sessionTitle: entrySessionId === sessionId
+								? (typeof currentTitle === "string" && currentTitle !== "" ? currentTitle : documentTitle())
+								: "",
+							turn,
+							text: String(text ?? "").slice(0, 180),
+							savedAt: Date.now()
+						}];
+					writeEntries(next);
 					return next;
 				});
-			}, [sessionId]);
+			}, [currentTitle, sessionId]);
 
 			// Rail placement follows the conversation scrollport, not the window.
 			react.useEffect(() => {
@@ -375,23 +486,22 @@ window.__ModuleLoader__.load({
 				setItems((previous) => {
 					let changed = false;
 					const next = previous.map((item) => {
-						if (item.text !== "") return item;
+						if (item.sessionId !== sessionId || item.text !== "") return item;
 						const text = previewFor(host, item.turn);
 						if (text === "") return item;
 						changed = true;
 						return { ...item, text };
 					});
-					if (changed) writeBookmarks(sessionId, next);
+					if (changed) writeEntries(next);
 					return changed ? next : previous;
 				});
 			}, [open, layout, sessionId]);
 
-			// Keep the gold marks on the host rail in sync with saved turns.
+			// Keep the gold marks on the host rail in sync with this Session's turns.
 			react.useEffect(() => {
-				if (itemsSession !== sessionId) return;
 				const host = hostNow();
-				if (host !== null) syncMarks(host, items);
-			}, [items, itemsSession, layout, sessionId]);
+				if (host !== null) syncMarks(host, items.filter((item) => item.sessionId === sessionId));
+			}, [items, layout, sessionId]);
 
 			react.useEffect(() => {
 				let frame = 0;
@@ -400,7 +510,7 @@ window.__ModuleLoader__.load({
 					frame = window.requestAnimationFrame(() => {
 						frame = 0;
 						const host = hostNow();
-						if (host !== null) syncMarks(host, itemsRef.current);
+						if (host !== null) syncMarks(host, itemsRef.current.filter((item) => item.sessionId === sessionId));
 					});
 				};
 				const host = hostNow();
@@ -433,14 +543,14 @@ window.__ModuleLoader__.load({
 					if (turn === undefined) return;
 					event.preventDefault();
 					event.stopPropagation();
-					const exists = itemsRef.current.some((item) => item.turn === turn);
+					const exists = itemsRef.current.some((item) => item.sessionId === sessionId && item.turn === turn);
 					if (exists) mark.removeAttribute("data-dsh-turn-bookmarked");
 					else mark.setAttribute("data-dsh-turn-bookmarked", "true");
-					toggle(turn, previewFor(host, turn));
+					toggleFor(sessionId, turn, previewFor(host, turn));
 				};
 				document.addEventListener("contextmenu", onContextMenu, true);
 				return () => document.removeEventListener("contextmenu", onContextMenu, true);
-			}, [sessionId, toggle]);
+			}, [sessionId, toggleFor]);
 
 			// Dismiss the panel on an outside press or Escape.
 			react.useEffect(() => {
@@ -461,10 +571,21 @@ window.__ModuleLoader__.load({
 				};
 			}, [open]);
 
+			const currentItems = items
+				.filter((item) => item.sessionId === sessionId)
+				.sort((left, right) => left.turn - right.turn);
+			const panelItems = [...items].sort((left, right) => (right.savedAt || 0) - (left.savedAt || 0));
 			const count = items.length;
 			const panelId = "dsh-turn-bookmarks-panel";
-			const ready = itemsSession === sessionId;
-			const rail = layout === null || !ready ? null : reactDom.createPortal(react.createElement("div", {
+			const openBookmark = (item) => {
+				if (item.sessionId === sessionId) {
+					if (navigateToTurn(sessionId, item.turn)) setOpen(false);
+					return;
+				}
+				setOpen(false);
+				openSessionAtTurn(workspace, item.sessionId, item.turn);
+			};
+			const rail = layout === null ? null : reactDom.createPortal(react.createElement("div", {
 				className: "dshBookmarksRail",
 				"data-dsh-turn-bookmarks": "rail",
 				style: { left: layout.left, top: layout.top, height: layout.height }
@@ -489,26 +610,24 @@ window.__ModuleLoader__.load({
 				strokeLinejoin: "round"
 			})), count > 0 ? react.createElement("span", { className: "dshBookmarksCount" }, count > 99 ? "99+" : String(count)) : null), react.createElement("div", {
 				className: "dshBookmarksTrack",
-				"data-empty": count === 0 ? "true" : undefined
-			}, count === 0 ? react.createElement("span", { className: "dshBookmarksEmpty", "aria-hidden": "true" }) : items.map((item) => react.createElement("button", {
-				key: item.turn,
+				"data-empty": currentItems.length === 0 ? "true" : undefined
+			}, currentItems.length === 0 ? react.createElement("span", { className: "dshBookmarksEmpty", "aria-hidden": "true" }) : currentItems.map((item) => react.createElement("button", {
+				key: `${item.sessionId}:${item.turn}`,
 				type: "button",
 				className: "dshBookmarksMark",
 				"data-turn": item.turn,
 				"data-dsh-turn-bookmarks": "mark",
 				title: `${t("turn", { turn: item.turn })}${item.text === "" ? "" : ` · ${item.text}`}`,
 				"aria-label": `${t("turn", { turn: item.turn })}${item.text === "" ? "" : `: ${item.text}`}`,
-				onClick: () => {
-					if (navigateToTurn(sessionId, item.turn)) setOpen(false);
-				},
+				onClick: () => openBookmark(item),
 				onContextMenu: (event) => {
 					event.preventDefault();
 					event.stopPropagation();
-					toggle(item.turn, item.text);
+					toggleFor(item.sessionId, item.turn, item.text);
 				}
 			})))), document.body);
 
-			const panel = layout === null || !open || !ready ? null : reactDom.createPortal(react.createElement("div", {
+			const panel = layout === null || !open ? null : reactDom.createPortal(react.createElement("div", {
 				className: "dshBookmarksPanel",
 				id: panelId,
 				"data-dsh-turn-bookmarks": "panel",
@@ -524,19 +643,21 @@ window.__ModuleLoader__.load({
 				autoFocus: true,
 				"aria-label": t("close"),
 				onClick: () => setOpen(false)
-			}, "×")), react.createElement("div", { className: "dshBookmarksList" }, count === 0 ? react.createElement("div", { className: "dshBookmarksEmptyState" }, t("empty")) : items.map((item) => react.createElement("div", { key: item.turn, className: "dshBookmarksRow" }, react.createElement("button", {
-				type: "button",
-				className: "dshBookmarksOpen",
-				onClick: () => {
-					if (navigateToTurn(sessionId, item.turn)) setOpen(false);
-				}
-			}, react.createElement("span", { className: "dshBookmarksTurn" }, t("turn", { turn: item.turn })), react.createElement("span", { className: "dshBookmarksText" }, item.text === "" ? t("unloaded") : item.text)), react.createElement("button", {
-				type: "button",
-				className: "dshBookmarksRemove",
-				title: t("remove"),
-				"aria-label": t("remove"),
-				onClick: () => toggle(item.turn, item.text)
-			}, "×"))))), document.body);
+			}, "×")), react.createElement("div", { className: "dshBookmarksList" }, count === 0 ? react.createElement("div", { className: "dshBookmarksEmptyState" }, t("empty")) : panelItems.map((item) => {
+				const title = sessionRows?.[item.sessionId]?.displayTitle
+					|| (item.sessionId === sessionId ? (currentTitle || documentTitle()) : (item.sessionTitle || t("unknownSession")));
+				return react.createElement("div", { key: `${item.sessionId}:${item.turn}`, className: "dshBookmarksRow" }, react.createElement("button", {
+					type: "button",
+					className: "dshBookmarksOpen",
+					onClick: () => openBookmark(item)
+				}, react.createElement("span", { className: "dshBookmarksMeta" }, react.createElement("span", { className: "dshBookmarksSession" }, title), react.createElement("span", { className: "dshBookmarksTurn" }, t("turn", { turn: item.turn }))), react.createElement("span", { className: "dshBookmarksText" }, item.text === "" ? t("unloaded") : item.text)), react.createElement("button", {
+					type: "button",
+					className: "dshBookmarksRemove",
+					title: t("remove"),
+					"aria-label": t("remove"),
+					onClick: () => toggleFor(item.sessionId, item.turn, item.text)
+				}, "×"));
+			}))), document.body);
 
 			return react.createElement(react.Fragment, null,
 				react.createElement("span", { ref: dockRef, hidden: true, "data-dsh-turn-bookmarks": "dock" }),
@@ -547,7 +668,7 @@ window.__ModuleLoader__.load({
 
 		//#region dsh-turn-bookmarks/index.js
 		/** Services required by the bookmark rail. */
-		const inject = ["slots", "locale"];
+		const inject = ["slots", "locale", "uiWorkspace"];
 
 		/**
 		 * Register the invisible dock owner; the visible rail/panel are portaled
@@ -560,7 +681,8 @@ window.__ModuleLoader__.load({
 				name: "conversation.composer.dock",
 				id: "turn-bookmarks",
 				order: 20,
-				locale: NS
+				locale: NS,
+				inject: () => ({ workspace: ctx.uiWorkspace })
 			}, TurnBookmarks));
 		}
 		//#endregion
@@ -576,6 +698,8 @@ window.__ModuleLoader__.load({
 		exports.syncMarks = syncMarks;
 		exports.readBookmarks = readBookmarks;
 		exports.writeBookmarks = writeBookmarks;
+		exports.readEntries = readEntries;
+		exports.writeEntries = writeEntries;
 		return module.exports;
 	}
 });

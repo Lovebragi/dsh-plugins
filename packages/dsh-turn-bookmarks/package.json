@@ -1,6 +1,6 @@
 {
   "name": "dsh-turn-bookmarks",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Client plugin: right-click a DSH turn marker to bookmark it, with a fixed gold rail and a favorites panel.",
   "type": "module",
   "main": "lib/index.js",

@@ -8,7 +8,7 @@
 | [dsh-balance-chip](packages/dsh-balance-chip) | 对话区右上角显示 DeepSeek 余额；悬停展开「查询用量 / 充值」 | Desktop / Web |
 | [dsh-reply-progress](packages/dsh-reply-progress) | 正在生成回复时显示一个预计完成百分比进度条 | Desktop / Web |
 | [dsh-jump-to-question](packages/dsh-jump-to-question) | 回答太长时，结束后自动跳回本轮问题；也可手动点「回到问题」 | Desktop / Web |
-| [dsh-turn-bookmarks](packages/dsh-turn-bookmarks) | 右键右侧回合刻度收藏，左侧固定金色收藏刻度 + 收藏面板 | Desktop / Web |
+| [dsh-turn-bookmarks](packages/dsh-turn-bookmarks) | 右键右侧回合刻度收藏，左侧固定金色刻度；面板跨对话查找和跳转收藏 | Desktop / Web |
 
 > 五个插件都是 DSH 的 bundle 包：宿主半边 +（后四个）浏览器半边。任务栏插件只有宿主半边，不需要构建前端。
 

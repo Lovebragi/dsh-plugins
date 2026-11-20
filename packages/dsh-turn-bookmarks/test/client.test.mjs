@@ -136,11 +136,19 @@ module.writeBookmarks('s1', [
   { turn: 3, text: 'duplicate' },
   { turn: 0, text: 'invalid' },
 ]);
-assert.deepEqual(JSON.parse(JSON.stringify(module.readBookmarks('s1'))), [
-  { turn: 1, text: 'first' },
-  { turn: 3, text: 'third' },
+assert.deepEqual(JSON.parse(JSON.stringify(module.readBookmarks('s1').map((entry) => ({
+  sessionId: entry.sessionId,
+  turn: entry.turn,
+  text: entry.text,
+})))), [
+  { sessionId: 's1', turn: 1, text: 'first' },
+  { sessionId: 's1', turn: 3, text: 'duplicate' },
 ]);
 assert.deepEqual([...module.readBookmarks('s2')], []);
+module.writeBookmarks('s2', [{ turn: 2, text: 'other session' }]);
+assert.equal(module.readEntries().length, 3);
+assert.equal(module.readBookmarks('s1').length, 2);
+assert.equal(module.readBookmarks('s2').length, 1);
 
 // Gold marks are restricted to the rail and follow saved turns.
 function railHost(buttons) {
@@ -205,7 +213,7 @@ assert.equal(module.previewFor({ querySelector: () => null }, 2), '');
   assert.equal(registrations[0].options.order, 20);
   assert.equal(registrations[0].options.locale, 'turnBookmarks');
   assert.equal(typeof registrations[0].component, 'function');
-  assert.deepEqual([...module.inject], ['slots', 'locale']);
+  assert.deepEqual([...module.inject], ['slots', 'locale', 'uiWorkspace']);
 }
 
 console.log('turn-bookmarks bundle checks passed');
