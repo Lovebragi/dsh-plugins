@@ -16,10 +16,11 @@ window.__ModuleLoader__.load({
 .dshBookmarksTop[data-open=true]{color:#e6b23a;background:var(--dsw-alias-interactive-bg-hover)}\
 .dshBookmarksTop svg{width:14px;height:14px;display:block}\
 .dshBookmarksCount{position:absolute;top:-4px;right:-4px;min-width:13px;height:13px;padding:0 3px;border-radius:7px;background:#e6b23a;color:#392a08;font-family:inherit;font-size:9px;font-weight:700;line-height:13px;text-align:center;box-sizing:border-box}\
-.dshBookmarksTrack{position:relative;flex:1;width:100%;min-height:0;display:flex;flex-direction:column;align-items:center;gap:6px;padding:3px 0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none;pointer-events:auto}\
+.dshBookmarksTrack{position:relative;flex:1;width:100%;min-height:0;display:flex;flex-direction:column;align-items:center;gap:2px;padding:3px 0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none;pointer-events:none}\
 .dshBookmarksTrack::-webkit-scrollbar{display:none}\
 .dshBookmarksTrack::before{content:'';position:absolute;top:0;bottom:0;left:50%;width:1px;background:var(--dsw-alias-border-l2);opacity:.7}\
-.dshBookmarksMark{position:relative;flex:none;width:18px;height:10px;padding:0;border:0;border-radius:6px;background:transparent;cursor:pointer;pointer-events:auto}\
+.dshBookmarksTrack[data-empty=true]::before{display:none}\
+.dshBookmarksMark{position:relative;flex:none;width:24px;height:20px;padding:0;border:0;border-radius:6px;background:transparent;cursor:pointer;pointer-events:auto}\
 .dshBookmarksMark::before{content:'';position:absolute;top:50%;right:0;left:0;height:3px;border-radius:3px;background:#e6b23a;box-shadow:0 0 5px rgba(230,178,58,.28);transform:translateY(-50%) scaleX(.86);transform-origin:right center;transition:transform .14s ease,opacity .14s ease}\
 .dshBookmarksMark:hover::before{transform:translateY(-50%) scaleX(1)}\
 .dshBookmarksMark:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px}\
@@ -30,6 +31,7 @@ window.__ModuleLoader__.load({
 .dshBookmarksTotal{flex:none;color:var(--dsw-alias-label-tertiary);font-size:11px;font-variant-numeric:tabular-nums}\
 .dshBookmarksClose{flex:none;width:22px;height:22px;padding:0;border:none;border-radius:6px;background:transparent;color:var(--dsw-alias-label-tertiary);font-size:16px;line-height:1;cursor:pointer}\
 .dshBookmarksClose:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}\
+.dshBookmarksClose:focus-visible,.dshBookmarksRemove:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}\
 .dshBookmarksList{min-height:0;overflow-y:auto;padding:4px}\
 .dshBookmarksRow{display:flex;align-items:stretch;gap:2px;border-radius:8px}\
 .dshBookmarksRow:hover{background:var(--dsw-alias-interactive-bg-hover)}\
@@ -40,7 +42,7 @@ window.__ModuleLoader__.load({
 .dshBookmarksRemove{flex:none;width:26px;border:none;border-radius:8px;background:transparent;color:var(--dsw-alias-label-tertiary);font-family:inherit;font-size:16px;cursor:pointer}\
 .dshBookmarksRemove:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}\
 .dshBookmarksEmptyState{padding:22px 12px;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:1.6;text-align:center}\
-[data-dsh-turn-bookmarked=true]::before{background:#e6b23a!important;opacity:1!important;transform:translateY(-50%) scaleX(1)!important}\
+[data-dsh-turn-bookmarked=true]::before{background:#e6b23a!important;transform:translateY(-50%) scaleX(1)!important}\
 @media (max-width:900px){.dshBookmarksRail,.dshBookmarksPanel{display:none}}\
 @media (prefers-reduced-motion:reduce){.dshBookmarksMark::before{transition:none}}\
 `;
@@ -69,7 +71,23 @@ window.__ModuleLoader__.load({
 			const rawIndex = button.getAttribute("data-index");
 			if (rawIndex === null || rawIndex === "") return undefined;
 			const index = Number(rawIndex);
-			return Number.isSafeInteger(index) && index >= 0 ? index + 1 : undefined;
+			if (!Number.isSafeInteger(index) || index < 0) return undefined;
+			// A label without digits should not silently become index + 1:
+			// calibrate against any rendered sibling that has both a label and
+			// an index, so trimmed/imported logs still map to the right turn.
+			const nav = typeof button.closest === "function" ? button.closest("nav") : null;
+			if (nav !== null) {
+				for (const sibling of nav.querySelectorAll(TURN_MARK)) {
+					if (sibling === button) continue;
+					const siblingLabel = sibling.getAttribute("aria-label") ?? "";
+					const siblingMatch = siblingLabel.match(/(\d+)/);
+					const siblingIndex = Number(sibling.getAttribute("data-index"));
+					if (siblingMatch !== null && Number.isSafeInteger(siblingIndex)) {
+						return Number(siblingMatch[1]) + (index - siblingIndex);
+					}
+				}
+			}
+			return undefined;
 		}
 
 		/** Find the current session's conversation host. */
@@ -92,7 +110,8 @@ window.__ModuleLoader__.load({
 		function findRailNav(host) {
 			if (host === null) return null;
 			for (const nav of host.querySelectorAll("nav")) {
-				if (nav.querySelector(TURN_MARK) !== null) return nav;
+				const marks = nav.querySelectorAll(TURN_MARK);
+				if (marks.length > 0 && turnFromMark(marks[0]) !== undefined) return nav;
 			}
 			return null;
 		}
@@ -108,6 +127,7 @@ window.__ModuleLoader__.load({
 
 		/** Wait for virtualization, then click the host mark for a turn. */
 		function clickMarkWhenReady(nav, turn, attempt = 0) {
+			if (!nav.isConnected) return;
 			const mark = markForTurn(nav, turn);
 			if (mark !== null) {
 				mark.click();
@@ -154,34 +174,47 @@ window.__ModuleLoader__.load({
 			return String(raw ?? "").replace(/\s+/g, " ").trim().slice(0, 180);
 		}
 
+		/** Estimate the virtual rail index for a turn from a rendered mark. */
+		function railIndexFor(nav, turn) {
+			for (const button of nav.querySelectorAll(TURN_MARK)) {
+				const renderedTurn = turnFromMark(button);
+				const index = Number(button.getAttribute("data-index"));
+				if (renderedTurn !== undefined && Number.isSafeInteger(index)) return index + (turn - renderedTurn);
+			}
+			return Math.max(0, turn - 1);
+		}
+
 		/** Navigate to a turn, preferring the host rail's own paging/navigation. */
 		function navigateToTurn(sessionId, turn) {
 			const host = findHost(sessionId);
-			if (host === null) return;
+			if (host === null) return false;
+			const nav = findRailNav(host);
+			if (nav !== null) {
+				const direct = markForTurn(nav, turn);
+				if (direct !== null) {
+					direct.click();
+					return true;
+				}
+			}
 			const prompt = host.querySelector(`[data-chat-flow-kind="user"][data-chat-turn="${turn}"]`);
 			if (prompt !== null) {
 				const scroller = findScroller(host);
 				if (scroller !== null) {
 					scrollToPrompt(prompt, scroller);
-					return;
+					return true;
 				}
 			}
-			const nav = findRailNav(host);
-			if (nav === null) return;
-			const direct = markForTurn(nav, turn);
-			if (direct !== null) {
-				direct.click();
-				return;
-			}
+			if (nav === null || nav.getBoundingClientRect().width === 0) return false;
 			const scroller = nav.querySelector("div");
-			if (scroller === null) return;
-			// The rail is a 10px-pitch virtual list. Bring the approximate index
+			if (scroller === null) return false;
+			// The rail is a 10px-pitch virtual list. Bring the calibrated index
 			// into view, wait for the virtualizer to render it, then use the host's
 			// own mark click so history paging and landing behavior stay intact.
-			scroller.scrollTop = Math.max(0, (turn - 1) * 10 - scroller.clientHeight / 2);
+			scroller.scrollTop = Math.max(0, railIndexFor(nav, turn) * 10 - scroller.clientHeight / 2);
 			window.requestAnimationFrame(() => {
 				window.requestAnimationFrame(() => clickMarkWhenReady(nav, turn));
 			});
+			return true;
 		}
 
 		/** Paint gold on the host rail marks for the bookmarked turns. */
@@ -260,13 +293,22 @@ window.__ModuleLoader__.load({
 		 */
 		function TurnBookmarks({ sessionId, t }) {
 			const [items, setItems] = react.useState(() => readBookmarks(sessionId));
+			const [itemsSession, setItemsSession] = react.useState(sessionId);
 			const [open, setOpen] = react.useState(false);
 			const [layout, setLayout] = react.useState(null);
+			const dockRef = react.useRef(null);
 			const itemsRef = react.useRef(items);
 			itemsRef.current = items;
 
+			const hostNow = () => {
+				const mount = dockRef.current;
+				const closest = mount !== null && typeof mount.closest === "function" ? mount.closest("[data-conversation-session]") : null;
+				return closest ?? findHost(sessionId);
+			};
+
 			react.useEffect(() => {
 				setItems(readBookmarks(sessionId));
+				setItemsSession(sessionId);
 				setOpen(false);
 			}, [sessionId]);
 
@@ -285,8 +327,9 @@ window.__ModuleLoader__.load({
 			// Rail placement follows the conversation scrollport, not the window.
 			react.useEffect(() => {
 				let timer = 0;
+				let observer = null;
 				const update = () => {
-					const host = findHost(sessionId);
+					const host = hostNow();
 					if (host === null) {
 						setLayout(null);
 						return;
@@ -304,6 +347,11 @@ window.__ModuleLoader__.load({
 						&& previous.left === left && previous.top === top && previous.height === height
 						? previous
 						: { left, top, height });
+					if (observer === null && typeof ResizeObserver === "function") {
+						observer = new ResizeObserver(update);
+						observer.observe(host);
+						observer.observe(scroll);
+					}
 				};
 				update();
 				window.addEventListener("resize", update);
@@ -311,14 +359,39 @@ window.__ModuleLoader__.load({
 				return () => {
 					window.removeEventListener("resize", update);
 					window.clearInterval(timer);
+					if (observer !== null) observer.disconnect();
 				};
 			}, [sessionId]);
 
+			react.useEffect(() => {
+				if (layout === null) setOpen(false);
+			}, [layout]);
+
+			// Refresh previews captured while a turn was still unloaded.
+			react.useEffect(() => {
+				if (!open) return;
+				const host = hostNow();
+				if (host === null) return;
+				setItems((previous) => {
+					let changed = false;
+					const next = previous.map((item) => {
+						if (item.text !== "") return item;
+						const text = previewFor(host, item.turn);
+						if (text === "") return item;
+						changed = true;
+						return { ...item, text };
+					});
+					if (changed) writeBookmarks(sessionId, next);
+					return changed ? next : previous;
+				});
+			}, [open, layout, sessionId]);
+
 			// Keep the gold marks on the host rail in sync with saved turns.
 			react.useEffect(() => {
-				const host = findHost(sessionId);
+				if (itemsSession !== sessionId) return;
+				const host = hostNow();
 				if (host !== null) syncMarks(host, items);
-			}, [items, layout, sessionId]);
+			}, [items, itemsSession, layout, sessionId]);
 
 			react.useEffect(() => {
 				let frame = 0;
@@ -326,20 +399,20 @@ window.__ModuleLoader__.load({
 					if (frame !== 0) return;
 					frame = window.requestAnimationFrame(() => {
 						frame = 0;
-						const host = findHost(sessionId);
+						const host = hostNow();
 						if (host !== null) syncMarks(host, itemsRef.current);
 					});
 				};
-				const host = findHost(sessionId);
+				const host = hostNow();
 				if (host !== null) host.addEventListener("scroll", sync, { passive: true, capture: true });
 				const timer = window.setInterval(sync, 1000);
 				return () => {
 					if (host !== null) host.removeEventListener("scroll", sync, { capture: true });
 					window.clearInterval(timer);
 					if (frame !== 0) window.cancelAnimationFrame(frame);
-					const current = findHost(sessionId);
-					const nav = findRailNav(current);
-					if (nav !== null) {
+					for (const candidate of document.querySelectorAll("[data-conversation-session]")) {
+						const nav = findRailNav(candidate);
+						if (nav === null) continue;
 						for (const button of nav.querySelectorAll(TURN_MARK)) button.removeAttribute("data-dsh-turn-bookmarked");
 					}
 				};
@@ -389,7 +462,9 @@ window.__ModuleLoader__.load({
 			}, [open]);
 
 			const count = items.length;
-			const rail = layout === null ? null : reactDom.createPortal(react.createElement("div", {
+			const panelId = "dsh-turn-bookmarks-panel";
+			const ready = itemsSession === sessionId;
+			const rail = layout === null || !ready ? null : reactDom.createPortal(react.createElement("div", {
 				className: "dshBookmarksRail",
 				"data-dsh-turn-bookmarks": "rail",
 				style: { left: layout.left, top: layout.top, height: layout.height }
@@ -399,7 +474,8 @@ window.__ModuleLoader__.load({
 				"data-dsh-turn-bookmarks": "top",
 				"data-open": open ? "true" : undefined,
 				title: t("open"),
-				"aria-label": t("open"),
+				"aria-label": count > 0 ? `${t("open")} (${count})` : t("open"),
+				"aria-controls": panelId,
 				"aria-expanded": open,
 				onClick: () => setOpen((value) => !value)
 			}, react.createElement("svg", {
@@ -423,8 +499,7 @@ window.__ModuleLoader__.load({
 				title: `${t("turn", { turn: item.turn })}${item.text === "" ? "" : ` · ${item.text}`}`,
 				"aria-label": `${t("turn", { turn: item.turn })}${item.text === "" ? "" : `: ${item.text}`}`,
 				onClick: () => {
-					setOpen(false);
-					navigateToTurn(sessionId, item.turn);
+					if (navigateToTurn(sessionId, item.turn)) setOpen(false);
 				},
 				onContextMenu: (event) => {
 					event.preventDefault();
@@ -433,8 +508,9 @@ window.__ModuleLoader__.load({
 				}
 			})))), document.body);
 
-			const panel = layout === null || !open ? null : reactDom.createPortal(react.createElement("div", {
+			const panel = layout === null || !open || !ready ? null : reactDom.createPortal(react.createElement("div", {
 				className: "dshBookmarksPanel",
+				id: panelId,
 				"data-dsh-turn-bookmarks": "panel",
 				role: "dialog",
 				"aria-label": t("panel"),
@@ -445,14 +521,14 @@ window.__ModuleLoader__.load({
 			}, react.createElement("header", { className: "dshBookmarksHeader" }, react.createElement("span", { className: "dshBookmarksTitle" }, t("panel")), react.createElement("span", { className: "dshBookmarksTotal" }, String(count)), react.createElement("button", {
 				type: "button",
 				className: "dshBookmarksClose",
+				autoFocus: true,
 				"aria-label": t("close"),
 				onClick: () => setOpen(false)
 			}, "×")), react.createElement("div", { className: "dshBookmarksList" }, count === 0 ? react.createElement("div", { className: "dshBookmarksEmptyState" }, t("empty")) : items.map((item) => react.createElement("div", { key: item.turn, className: "dshBookmarksRow" }, react.createElement("button", {
 				type: "button",
 				className: "dshBookmarksOpen",
 				onClick: () => {
-					setOpen(false);
-					navigateToTurn(sessionId, item.turn);
+					if (navigateToTurn(sessionId, item.turn)) setOpen(false);
 				}
 			}, react.createElement("span", { className: "dshBookmarksTurn" }, t("turn", { turn: item.turn })), react.createElement("span", { className: "dshBookmarksText" }, item.text === "" ? t("unloaded") : item.text)), react.createElement("button", {
 				type: "button",
@@ -463,7 +539,7 @@ window.__ModuleLoader__.load({
 			}, "×"))))), document.body);
 
 			return react.createElement(react.Fragment, null,
-				react.createElement("span", { hidden: true, "data-dsh-turn-bookmarks": "dock" }),
+				react.createElement("span", { ref: dockRef, hidden: true, "data-dsh-turn-bookmarks": "dock" }),
 				rail,
 				panel);
 		}

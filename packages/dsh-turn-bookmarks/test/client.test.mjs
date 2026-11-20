@@ -121,7 +121,11 @@ function fakeMark({ turn = undefined, index = undefined, label = undefined } = {
 assert.equal(module.turnFromMark(fakeMark({ label: '跳转到第 12 轮', index: 99 })), 12);
 assert.equal(module.turnFromMark(fakeMark({ label: 'Jump to turn 7' })), 7);
 assert.equal(module.turnFromMark(fakeMark({ label: 'Load and jump to turn 4' })), 4);
-assert.equal(module.turnFromMark(fakeMark({ index: 2 })), 3);
+assert.equal(module.turnFromMark(fakeMark({ index: 2 })), undefined);
+const labeledSibling = fakeMark({ label: '第 5 轮', index: 4 });
+const indexOnly = fakeMark({ index: 6 });
+indexOnly.closest = () => ({ querySelectorAll: () => [labeledSibling, indexOnly] });
+assert.equal(module.turnFromMark(indexOnly), 7);
 assert.equal(module.turnFromMark(fakeMark()), undefined);
 
 // Bookmark persistence normalizes numbers/objects, deduplicates, and sorts.
